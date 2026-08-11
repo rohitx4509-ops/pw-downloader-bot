@@ -6,13 +6,40 @@ import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# 1️⃣ Token aur Bot Initialization HAMESHA UPAR hona chahiye
-BOT_TOKEN = "8630261473:AAHYSFP3RX8lr-7v6nXrN-hIkI0F5n38mtw"  # Tera Naya Token
+# 🔑 Bot Token Setup
+BOT_TOKEN = "8630261473:AAG-349fL3P-xL5x_Rmt_p8m3tw"
 print(f"DEBUG: Bot Token Loaded: {BOT_TOKEN[:10]}...{BOT_TOKEN[-5:]}")
 
-bot = telebot.TeleBot(BOT_TOKEN) # <--- Ye line message_handler se PEHLE honi chahiye
+bot = telebot.TeleBot(BOT_TOKEN)
+user_data = {}
 
-# 2️⃣ Iske BAAD Handlers aayenge
+# 🌐 Dummy Health-Check Server (Render Keep-Alive)
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Engine Active!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    server.serve_forever()
+
+def fix_pw_url(raw_url):
+    url = raw_url.strip()
+    if "/dash/" in url or "/hls/" in url:
+        return re.sub(r'/(dash|hls)/.*$', '/master.m3u8', url)
+    return url
+
+def make_pbar(percent):
+    done = int(percent // 10)
+    return "█" * done + "░" * (10 - done)
+
+# 1️⃣ Start & URL Handlers
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.reply_to(message, "👋 **PW / JS Script URL Bhejo Bhai!**", parse_mode="Markdown")
@@ -66,7 +93,7 @@ def handle_quality(message):
 
     status_msg = bot.reply_to(
         message, 
-        f"🚀 **DOWNLOAD STARTED VIA ARIA2C...**\n\n📦 **Batch:** `{data['batch_name']}`\n🎯 **Quality:** `{data['quality']}p`", 
+        f"🚀 **DOWNLOAD STARTED...**\n\n📦 **Batch:** `{data['batch_name']}`\n🎯 **Quality:** `{data['quality']}p`", 
         parse_mode="Markdown"
     )
 
@@ -75,7 +102,6 @@ def handle_quality(message):
 def process_download(chat_id, data, status_msg_id):
     output_file = f"lecture_{chat_id}.mp4"
 
-    # ⚡ Aria2c Direct Downloader Engine (PW CDN Bypass)
     ydl_opts = {
         'format': f'bestvideo[height<={data["quality"]}]+bestaudio/best[height<={data["quality"]}]/best',
         'outtmpl': output_file,
@@ -93,7 +119,7 @@ def process_download(chat_id, data, status_msg_id):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([data['url']])
 
-        bot.edit_message_text("⬆️ **DOWNLOAD COMPLETE! UPLOADING TO TELEGRAM...**", chat_id, status_msg_id, parse_mode="Markdown")
+        bot.edit_message_text("⬆️ **DOWNLOAD COMPLETE! UPLOADING...**", chat_id, status_msg_id, parse_mode="Markdown")
 
         caption_text = f"""
 📚 <b>Batch:</b> {data['batch_name']}
@@ -120,8 +146,10 @@ def process_download(chat_id, data, status_msg_id):
     except Exception as e:
         bot.reply_to(chat_id, f"❌ **Error:** `{str(e)}`", parse_mode="Markdown")
 
+# 🚀 Start Background HTTP Server
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
+# 🤖 Start Polling
 try:
     bot.remove_webhook(drop_pending_updates=True)
 except Exception:
