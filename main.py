@@ -3,11 +3,24 @@ import yt_dlp
 import os
 import re
 import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 BOT_TOKEN = "8823136614:AAGEoT0TmZayMpnu2PC56vte3DDdFKHWyVw"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 user_links = {}
+
+# Render Web Service Port Binding Fix
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is Running Alive!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    server.serve_forever()
 
 def fix_pw_url(raw_url):
     url = raw_url.strip()
@@ -83,5 +96,9 @@ def download_selected_quality(message):
 
     threading.Thread(target=process_download, args=(chat_id, m3u8_url, user_choice, msg.message_id)).start()
 
-print("Mr_X45 बोट (Cloud Active) चालू हो गया है...")
-bot.infinity_polling()
+# Web server aur Bot dono chalu karein
+threading.Thread(target=run_dummy_server, daemon=True).start()
+print("Mr_X45 बोट (Web Service Active) चालू हो गया है...")
+
+# Drop pending updates to avoid 409 Conflict
+bot.infinity_polling(skip_pending_updates=True)
