@@ -6,7 +6,7 @@ import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-BOT_TOKEN = "8823136614:AAGEoT0TmZayMpnu2PC56vte3DDdFKHWyVw"
+BOT_TOKEN = "8823136614:AAGunesevWPoRSN58bsdCAKm-dLHN7L55ZQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # 🌐 Render Keep-Alive Server
