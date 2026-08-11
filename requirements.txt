@@ -1,2 +1,9 @@
-pyTelegramBotAPI
+pyrogram
+pyromod
+tgcrypto
+requests
+cloudscraper
 yt-dlp
+m3u8
+pytube
+aiohttp
