@@ -1,15 +1,14 @@
-FROM python:3.10-slim
+FROM python:3.13.0
+RUN apt-get update -y && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends gcc libffi-dev musl-dev ffmpeg aria2 python3-pip \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install system dependencies (FFmpeg & aria2)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg aria2 wget ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+COPY . /app/
+WORKDIR /app/
 
-WORKDIR /app
+RUN pip install --upgrade pip setuptools wheel -r Installer
 
-COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
+ENV COOKIES_FILE_PATH="/modules/youtube_cookies.txt"
 
-COPY . /app
-
-CMD ["python", "main.py"]
+CMD gunicorn app:app & python3 modules/main.py
