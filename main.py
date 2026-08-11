@@ -77,12 +77,12 @@ def process_uploader_name(message):
     user_data[chat_id]['uploader'] = message.text.strip()
 
     menu_text = """╭───❮ SELECT RESOLUTION ❯────►
-├───» send 144
-├───» send 240
-├───» send 360
-├───» send 480
-├───» send 720
-├───» send 1080
+├───» 144
+├───» 240
+├───» 360
+├───» 480
+├───» 720
+├───» 1080
 ╰───╭⚡[ Mr_X45 ]⚡╯───►"""
 
     bot.reply_to(message, f"```\n{menu_text}\n```", parse_mode="MarkdownV2")
@@ -119,33 +119,38 @@ def process_download(chat_id, data, status_msg_id):
     def my_hook(d):
         if d['status'] == 'downloading':
             now = time.time()
-            if now - last_update[0] > 4: # Har 4 sec me update
+            if now - last_update[0] > 3:
                 total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
                 downloaded = d.get('downloaded_bytes', 0)
                 if total > 0:
                     percent = (downloaded / total) * 100
                     p_bar = make_pbar(percent)
                     speed = d.get('_speed_str', 'N/A')
-                    text = f"📥 **DOWNLOADING LECTURE...**\n`[{p_bar}] {percent:.1f}%`\n🚀 **Speed:** `{speed}`"
+                    text = f"🚀 **PROCESSING STARTED**\n\n📦 **Batch:** `{data['batch_name']}`\n🎯 **Quality:** `{data['quality']}p`\n\n📥 **DOWNLOADING...**\n`[{p_bar}] {percent:.1f}%`\n⚡ **Speed:** `{speed}`"
                     try:
                         bot.edit_message_text(text, chat_id, status_msg_id, parse_mode="Markdown")
                     except Exception:
                         pass
                 last_update[0] = now
 
+    # ⚡ PW / PenPencil Special Headers to Bypass CDN Block
     ydl_opts = {
         'format': f'bestvideo[height<={data["quality"]}]+bestaudio/best[height<={data["quality"]}]/best',
         'outtmpl': output_file,
-        'concurrent_fragment_downloads': 6,  # Safe speed limit for free server
-        'fragment_retries': 30,
-        'socket_timeout': 30,                 # Unfreeze timeout fix
-        'hls_use_mpegts': True,
+        'concurrent_fragment_downloads': 10,
+        'fragment_retries': 50,
         'skip_unavailable_fragments': True,
         'progress_hooks': [my_hook],
+        'nocheckcertificate': True,
+        'prefer_insecure': True,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Referer': 'https://penpencil.co/',
-            'Origin': 'https://penpencil.co'
+            'Origin': 'https://penpencil.co',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'cross-site'
         }
     }
 
