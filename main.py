@@ -1,158 +1,376 @@
-import telebot
-import yt_dlp
 import os
 import re
+import sys
+import json
 import time
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import asyncio
+import requests
+import subprocess
+import urllib.parse
+import yt_dlp
+import cloudscraper
+import m3u8
+import core as helper
+from utils import progress_bar
+from vars import API_ID, API_HASH, BOT_TOKEN
+from aiohttp import ClientSession
+from pyromod import listen
+from subprocess import getstatusoutput
+from pytube import YouTube
+from aiohttp import web
+import logging
+from logging.handlers import RotatingFileHandler
+from pyrogram import Client, filters
+from pyrogram.types import Message
+from pyrogram.errors import FloodWait
+from pyrogram.errors.exceptions.bad_request_400 import StickerEmojiInvalid
 
-# 🔑 Bot Token Setup
-BOT_TOKEN = "8630261473:AAG-349fL3P-xL5x_Rmt_p8m3tw"
-print(f"DEBUG: Bot Token Loaded: {BOT_TOKEN[:10]}...{BOT_TOKEN[-5:]}")
+logging.basicConfig(
+    level=logging.ERROR,
+    format="%(asctime)s - %(levelname)s - %(message)s [%(filename)s:%(lineno)d]",
+    datefmt="%d-%b-%y %H:%M:%S",
+    handlers=[
+        RotatingFileHandler("logs.txt", maxBytes=50000000, backupCount=10),
+        logging.StreamHandler(),
+    ],
+)
+logging.getLogger("pyrogram").setLevel(logging.WARNING)
+logging = logging.getLogger()
 
-bot = telebot.TeleBot(BOT_TOKEN)
-user_data = {}
+# Initialize the bot
+bot = Client(
+    "bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
-# 🌐 Dummy Health-Check Server (Render Keep-Alive)
-class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Engine Active!")
+my_name = "Mr_X45"
+cookies_file_path = os.getenv("COOKIES_FILE_PATH", "/modules/youtube_cookies.txt")
 
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
+# ⚡ Fast Aria2c Multi-Thread Engine
+def pwdlx_video(url: str, output_filename: str):
+    cmd = [
+        "yt-dlp",
+        "--newline",
+        "--merge-output-format", "mp4",
+        "--remux-video", "mp4",
+        "--concurrent-fragments", "16",
+        "--downloader", "aria2c",
+        "--downloader-args", "aria2c:-x16 -s16 -k1M -j16",
+        "--add-header", "Referer:https://penpencil.co/",
+        "--add-header", "Origin:https://penpencil.co",
+        "-o", output_filename,
+        url,
+    ]
+    subprocess.run(cmd, check=True)
+    return output_filename
 
-def run_dummy_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
-    server.serve_forever()
+def extract_content_id(url):
+    try:
+        if "contentId=" in url:
+            parts = url.split("contentId=")
+            if len(parts) > 1:
+                content_id = parts[1]
+                for char in ["?", "&"]:
+                    if char in content_id:
+                        content_id = content_id.split(char)[0]
+                if content_id.endswith(".m3u8"):
+                    content_id = content_id[:-5]
+                elif ".m3u8" in content_id:
+                    content_id = content_id.split(".m3u8")[0]
+                return content_id
+        return None
+    except Exception as e:
+        return None
 
-def fix_pw_url(raw_url):
-    url = raw_url.strip()
-    if "/dash/" in url or "/hls/" in url:
-        return re.sub(r'/(dash|hls)/.*$', '/master.m3u8', url)
-    return url
-
-def make_pbar(percent):
-    done = int(percent // 10)
-    return "█" * done + "░" * (10 - done)
-
-# 1️⃣ Start & URL Handlers
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.reply_to(message, "👋 **PW / JS Script URL Bhejo Bhai!**", parse_mode="Markdown")
-
-@bot.message_handler(func=lambda message: message.text and message.text.startswith("http"))
-def handle_url(message):
-    chat_id = message.chat.id
-    user_data[chat_id] = {'url': fix_pw_url(message.text)}
-    
-    msg = bot.reply_to(message, "📝 **Batch Name दर्ज करें:**", parse_mode="Markdown")
-    bot.register_next_step_handler(msg, process_batch_name)
-
-def process_batch_name(message):
-    chat_id = message.chat.id
-    if chat_id not in user_data:
-        return
-    user_data[chat_id]['batch_name'] = message.text.strip()
-
-    msg = bot.reply_to(message, "👤 **Uploaded By में क्या नाम लिखना है?**", parse_mode="Markdown")
-    bot.register_next_step_handler(msg, process_uploader_name)
-
-def process_uploader_name(message):
-    chat_id = message.chat.id
-    if chat_id not in user_data:
-        return
-    user_data[chat_id]['uploader'] = message.text.strip()
-
-    menu_text = """╭───❮ SELECT RESOLUTION ❯────►
-├───» 144
-├───» 240
-├───» 360
-├───» 480
-├───» 720
-├───» 1080
-╰───╭⚡[ Mr_X45 ]⚡╯───►"""
-
-    bot.reply_to(message, f"```\n{menu_text}\n```", parse_mode="MarkdownV2")
-
-@bot.message_handler(func=lambda message: message.text and any(q in message.text for q in ["144", "240", "360", "480", "720", "1080"]))
-def handle_quality(message):
-    chat_id = message.chat.id
-    if chat_id not in user_data:
-        return
-
-    quality_match = re.search(r'(144|240|360|480|720|1080)', message.text)
-    if not quality_match:
-        return
-
-    data = user_data.pop(chat_id)
-    data['quality'] = quality_match.group(1)
-
-    status_msg = bot.reply_to(
-        message, 
-        f"🚀 **DOWNLOAD STARTED...**\n\n📦 **Batch:** `{data['batch_name']}`\n🎯 **Quality:** `{data['quality']}p`", 
-        parse_mode="Markdown"
-    )
-
-    threading.Thread(target=process_download, args=(chat_id, data, status_msg.message_id)).start()
-
-def process_download(chat_id, data, status_msg_id):
-    output_file = f"lecture_{chat_id}.mp4"
-
-    ydl_opts = {
-        'format': f'bestvideo[height<={data["quality"]}]+bestaudio/best[height<={data["quality"]}]/best',
-        'outtmpl': output_file,
-        'external_downloader': 'aria2c',
-        'external_downloader_args': ['-j', '16', '-x', '16', '-s', '16', '-k', '1M'],
-        'nocheckcertificate': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Referer': 'https://penpencil.co/',
-            'Origin': 'https://penpencil.co'
-        }
+def get_jw_signed_url(content_id, access_token):
+    url = f"https://api.classplusapp.com/cams/uploader/video/jw-signed-url?contentId={urllib.parse.quote(content_id, safe='')}"
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en",
+        "Origin": "https://web.classplusapp.com",
+        "Referer": "https://web.classplusapp.com/",
+        "Region": "IN",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/139.0.0.0 Safari/537.36",
+        "X-Access-Token": access_token,
     }
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        data = response.json()
+        return data.get("url")
+    except Exception as e:
+        return None
+
+routes = web.RouteTableDef()
+
+@routes.get("/", allow_head=True)
+async def root_route_handler(request):
+    return web.json_response("https://pw-downloader-bot.onrender.com/")
+
+async def web_server():
+    web_app = web.Application(client_max_size=30000000)
+    web_app.add_routes(routes)
+    return web_app
+
+# 🌟 PREMIUM START COMMAND
+@bot.on_message(filters.command("start"))
+async def start(client: Client, msg: Message):
+    welcome_text = (
+        f"╭───❮ **MR_X45 BATCH EXTRACTOR** ❯───►\n"
+        f"│\n"
+        f"├──» **WELCOME:** {msg.from_user.mention}\n"
+        f"├──» **STATUS:** **ONLINE & ACTIVE** ⚡\n"
+        f"│\n"
+        f"╰───╭⚡ **POWERED BY MR_X45** ⚡╯───►"
+    )
+    start_message = await client.send_message(msg.chat.id, welcome_text)
+    await asyncio.sleep(1)
+
+@bot.on_message(filters.command(["stop"]))
+async def restart_handler(_, m):
+    stop_text = (
+        f"╭───❮ **ENGINE STOPPED** ❯───►\n"
+        f"│\n"
+        f"├──» **STATUS:** **PROCESS TERMINATED** 🛑\n"
+        f"│\n"
+        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+    )
+    await m.reply_text(stop_text, quote=True)
+    os.execl(sys.executable, sys.executable, *sys.argv)
+
+# 🚀 CORE TXT HANDLER COMMANDS (/Mrx45 & /Official)
+@bot.on_message(filters.command(["Mrx45", "Official"]))
+async def txt_handler(bot: Client, m: Message):
+    prompt_txt = (
+        f"╭───❮ **TXT BATCH LEECHER** ❯───►\n"
+        f"│\n"
+        f"├──» **SEND TXT FILE TO BEGIN EXTRACTING** 📥\n"
+        f"│\n"
+        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+    )
+    editable = await m.reply_text(prompt_txt)
+    input_msg: Message = await bot.listen(editable.chat.id)
+    x = await input_msg.download()
+    await input_msg.delete(True)
+    file_name, ext = os.path.splitext(os.path.basename(x))
+    credit = f"@rahulx45_vibe"
+    token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." # Default Token
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([data['url']])
+        with open(x, "r") as f:
+            content = f.read()
+        content = content.split("\n")
+        links = [i.split("://", 1) for i in content if "://" in i]
+        os.remove(x)
+    except Exception:
+        await m.reply_text("❌ **INVALID TXT FILE! RESEND AGAIN.**")
+        if os.path.exists(x):
+            os.remove(x)
+        return
 
-        bot.edit_message_text("⬆️ **DOWNLOAD COMPLETE! UPLOADING...**", chat_id, status_msg_id, parse_mode="Markdown")
+    # STEP 1: INDEX
+    await editable.edit(
+        f"╭───❮ **TOTAL LINKS FOUND:** `{len(links)}` ❯───►\n"
+        f"│\n"
+        f"├──» **ENTER START INDEX:** *(DEFAULT 1)*\n"
+        f"│\n"
+        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+    )
+    input0: Message = await bot.listen(editable.chat.id)
+    raw_text = input0.text
+    await input0.delete(True)
+    try:
+        arg = int(raw_text)
+    except Exception:
+        arg = 1
 
-        caption_text = f"""
-📚 <b>Batch:</b> {data['batch_name']}
-🎯 <b>Quality:</b> {data['quality']}p HD
-🔗 <b>LNK:</b> <a href="{data['url']}">Click Here To Stream</a>
+    # STEP 2: BATCH NAME
+    await editable.edit(
+        f"╭───❮ **BATCH NAME SETUP** ❯───►\n"
+        f"│\n"
+        f"├──» **ENTER BATCH NAME** OR SEND `/Rahul`\n"
+        f"│\n"
+        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+    )
+    input1: Message = await bot.listen(editable.chat.id)
+    raw_text0 = input1.text
+    await input1.delete(True)
+    b_name = file_name if raw_text0 == '/Rahul' else raw_text0
 
-━━━━━━━━━━━━━━━━━━━━
-🎓 <b>Uploaded By:</b> {data['uploader']}
-⚡ <b>Powered By:</b> <b>Mr_X45 Studio</b>
-━━━━━━━━━━━━━━━━━━━━
-        """
+    # STEP 3: RESOLUTION
+    res_menu = (
+        f"╭───❮ **SELECT RESOLUTION** ❯───►\n"
+        f"├──» **144**\n"
+        f"├──» **240**\n"
+        f"├──» **360**\n"
+        f"├──» **480**\n"
+        f"├──» **720**\n"
+        f"├──» **1080**\n"
+        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+    )
+    await editable.edit(res_menu)
+    input2: Message = await bot.listen(editable.chat.id)
+    raw_text2 = input2.text.strip()
+    await input2.delete(True)
+    
+    res_map = {"144": "256x144", "240": "426x240", "360": "640x360", "480": "854x480", "720": "1280x720", "1080": "1920x1080"}
+    res = res_map.get(raw_text2, "854x480")
 
-        with open(output_file, 'rb') as video:
-            bot.send_video(
-                chat_id, 
-                video, 
-                caption=caption_text.strip(), 
-                parse_mode="HTML"
+    # STEP 4: UPLOADER NAME
+    await editable.edit(
+        f"╭───❮ **CREDITS SETUP** ❯───►\n"
+        f"│\n"
+        f"├──» **ENTER UPLOADER NAME** OR SEND `/Rahul`\n"
+        f"│\n"
+        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+    )
+    input3: Message = await bot.listen(editable.chat.id)
+    raw_text3 = input3.text
+    await input3.delete(True)
+    CR = credit if raw_text3 in ['/Rahul', '/Official', '/Cutie'] else raw_text3
+
+    # STEP 5: TOKEN
+    await editable.edit(
+        f"╭───❮ **PW TOKEN SETUP** ❯───►\n"
+        f"│\n"
+        f"├──» **ENTER PW TOKEN** OR SEND `/X45`\n"
+        f"│\n"
+        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+    )
+    input4: Message = await bot.listen(editable.chat.id)
+    raw_text4 = input4.text
+    await input4.delete(True)
+    access_token = token if raw_text4 in ['/X45', '/vip'] else raw_text4
+
+    # STEP 6: THUMBNAIL
+    await editable.edit(
+        f"╭───❮ **THUMBNAIL SETUP** ❯───►\n"
+        f"│\n"
+        f"├──» **SEND THUMBNAIL URL** OR TYPE `no`\n"
+        f"│\n"
+        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+    )
+    input6: Message = await bot.listen(editable.chat.id)
+    raw_text6 = input6.text
+    await input6.delete(True)
+    await editable.delete()
+
+    thumb = raw_text6
+    if thumb.startswith("http://") or thumb.startswith("https://"):
+        getstatusoutput(f"wget '{thumb}' -O 'thumb.jpg'")
+        thumb = "thumb.jpg"
+    else:
+        thumb = "no"
+
+    count = int(arg)
+    
+    # DOWNLOAD LOOP
+    try:
+        for i in range(arg - 1, len(links)):
+            Vxy = links[i][1].replace("file/d/", "uc?export=download&id=").replace("www.youtube-nocookie.com/embed", "youtu.be").replace("?modestbranding=1", "").replace("/view?usp=sharing", "")
+            url = "https://" + Vxy
+
+            if 'https://contentId=' in url or 'contentHashIdl=' in url:
+                content_id = extract_content_id(url)
+                cpurl = get_jw_signed_url(content_id, access_token)
+                if cpurl:
+                    url = cpurl
+
+            elif '/master.mpd' in url or "/dash/" in url or "parentId=" in url:
+                if "parentId=" in url or "childId=" in url:
+                    url = f"https://ankitshakyaxapi.vercel.app/download?mpd_url={url}&token={raw_text4}&quality={raw_text2}"
+                else:
+                    url = f"https://ankitshakyaxapi.vercel.app/download?mpd_url={url}&quality={raw_text2}"
+
+            name1 = links[i][0].replace("\t", "").replace(":", "").replace("/", "").replace("+", "").replace("#", "").replace("|", "").replace("@", "").replace("*", "").replace(".", "").replace("https", "").replace("http", "").strip()
+            name = f'{str(count).zfill(3)}) {name1[:60]} {my_name}'
+
+            if "youtu" in url:
+                ytf = f"b[height<={raw_text2}][ext=mp4]/bv[height<={raw_text2}][ext=mp4]+ba[ext=m4a]/b[ext=mp4]"
+            else:
+                ytf = f"b[height<={raw_text2}]/bv[height<={raw_text2}]+ba/b/bv+ba"
+
+            cmd = f'yt-dlp -f "{ytf}" "{url}" -o "{name}.mp4"'
+
+            # PREMIUM CAPTION BOLD FORMATTING
+            cc = (
+                f"╭───❮ **MR_X45 LECTURE EXTRACTED** ❯───►\n"
+                f"│\n"
+                f"├──» **ID:** `{str(count).zfill(3)}` \n"
+                f"├──» **TITLE:** **{name1}**\n"
+                f"├──» **QUALITY:** **{raw_text2}p HD**\n"
+                f"├──» **BATCH:** **{b_name}**\n"
+                f"│\n"
+                f"├──» **EXTRACTED BY:** **{CR}**\n"
+                f"│\n"
+                f"╰───╭⚡ **POWERED BY MR_X45** ⚡╯───►"
             )
 
-        if os.path.exists(output_file):
-            os.remove(output_file)
+            cc1 = (
+                f"╭───❮ **MR_X45 DOCUMENT EXTRACTED** ❯───►\n"
+                f"│\n"
+                f"├──» **ID:** `{str(count).zfill(3)}` \n"
+                f"├──» **TITLE:** **{name1}**\n"
+                f"├──» **BATCH:** **{b_name}**\n"
+                f"│\n"
+                f"├──» **EXTRACTED BY:** **{CR}**\n"
+                f"│\n"
+                f"╰───╭⚡ **POWERED BY MR_X45** ⚡╯───►"
+            )
+
+            try:
+                if ".pdf" in url:
+                    scraper = cloudscraper.create_scraper()
+                    response = scraper.get(url.replace(" ", "%20"))
+                    if response.status_code == 200:
+                        with open(f'{name}.pdf', 'wb') as file:
+                            file.write(response.content)
+                        await bot.send_document(chat_id=m.chat.id, document=f'{name}.pdf', caption=cc1)
+                        count += 1
+                        os.remove(f'{name}.pdf')
+                else:
+                    download_status = (
+                        f"╭───❮ **DOWNLOADING LECTURE** ❯───►\n"
+                        f"│\n"
+                        f"├──» **INDEX:** `{str(count).zfill(3)}` \n"
+                        f"├──» **TITLE:** **{name1[:40]}**\n"
+                        f"├──» **QUALITY:** **{raw_text2}p**\n"
+                        f"│\n"
+                        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+                    )
+                    prog = await m.reply_text(download_status)
+                    output_filename = f"{name}.mp4"
+                    res_file = pwdlx_video(url, output_filename)
+                    await prog.delete(True)
+                    await helper.send_vid(bot, m, cc, res_file, thumb, name, prog)
+                    count += 1
+                    await asyncio.sleep(1)
+
+            except FloodWait as e:
+                await asyncio.sleep(e.x)
+                continue
+            except Exception as e:
+                await m.reply_text(
+                    f"╭───❮ **DOWNLOAD FAILED** ❯───►\n"
+                    f"│\n"
+                    f"├──» **ID:** `{str(count).zfill(3)}` \n"
+                    f"├──» **TITLE:** **{name1[:30]}**\n"
+                    f"│\n"
+                    f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+                )
+                continue
 
     except Exception as e:
-        bot.reply_to(chat_id, f"❌ **Error:** `{str(e)}`", parse_mode="Markdown")
+        await m.reply_text(f"❌ **ERROR:** `{str(e)}`")
 
-# 🚀 Start Background HTTP Server
-threading.Thread(target=run_dummy_server, daemon=True).start()
+    done_text = (
+        f"╭───❮ **EXTRACTION COMPLETED** ❯───►\n"
+        f"│\n"
+        f"├──» **ALL LECTURES EXTRACTED SUCCESSFULLY** ✅\n"
+        f"│\n"
+        f"╰───╭⚡ **MR_X45 STUDIO** ⚡╯───►"
+    )
+    await m.reply_text(done_text)
 
-# 🤖 Start Polling
-try:
-    bot.remove_webhook(drop_pending_updates=True)
-except Exception:
-    pass
-
-bot.infinity_polling()
+bot.run()
