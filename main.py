@@ -2,21 +2,19 @@ import telebot
 import yt_dlp
 import os
 import re
+import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# 🔑 Bot Token
 BOT_TOKEN = "8823136614:AAGEoT0TmZayMpnu2PC56vte3DDdFKHWyVw"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-user_links = {}
-
-# 🌐 Render Web Service Port Binding
+# 🌐 Render Keep-Alive Server
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is Running Alive!")
+        self.wfile.write(b"Engine Active")
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
@@ -31,35 +29,54 @@ def fix_pw_url(raw_url):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "नमस्ते भाई! मुझे कोई भी PW लेक्चर लिंक भेजो।")
+    bot.reply_to(message, "👋 PW Link Bhejo Bhai!")
 
-@bot.message_handler(func=lambda message: message.text.startswith("http"))
-def ask_quality(message):
-    fixed_url = fix_pw_url(message.text)
-    user_links[message.chat.id] = fixed_url
-    
-    menu_text = """╭───❮ENTER RESOLUTION❯────►
-├───» send 144
-├───» send 240
-├───» send 360
-├───» send 480
-├───» send 720
-├───» send 1080
-╰───╭⚡[ Mr_X45 ]⚡╯───►"""
+@bot.message_handler(func=lambda message: message.text and message.text.startswith("http"))
+def download_lecture(message):
+    chat_id = message.chat.id
+    raw_url = message.text.strip()
+    m3u8_url = fix_pw_url(raw_url)
 
-    bot.reply_to(message, f"```\n{menu_text}\n```", parse_mode="MarkdownV2")
+    status_msg = bot.reply_to(message, "⏳ **Extracting Stream & Downloading...**\n`[░░░░░░░░░░] 0%`", parse_mode="Markdown")
 
-def process_download(chat_id, m3u8_url, user_choice, msg_id):
+    threading.Thread(target=process_stream, args=(chat_id, m3u8_url, status_msg.message_id)).start()
+
+def make_progress_bar(percent):
+    done = int(percent // 10)
+    return "█" * done + "░" * (10 - done)
+
+def process_stream(chat_id, m3u8_url, status_msg_id):
     output_file = f"lecture_{chat_id}.mp4"
+    last_update = [time.time()]
 
+    # 📊 Real-Time Download Progress Hook
+    def my_hook(d):
+        if d['status'] == 'downloading':
+            now = time.time()
+            if now - last_update[0] > 3: # Har 3 sec me update
+                total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+                downloaded = d.get('downloaded_bytes', 0)
+                if total > 0:
+                    percent = (downloaded / total) * 100
+                    p_bar = make_progress_bar(percent)
+                    speed = d.get('_speed_str', 'N/A')
+                    text = f"📥 **DOWNLOADING LECTURE...**\n`[{p_bar}] {percent:.1f}%`\n🚀 **Speed:** `{speed}`"
+                    try:
+                        bot.edit_message_text(text, chat_id, status_msg_id, parse_mode="Markdown")
+                    except Exception:
+                        pass
+                last_update[0] = now
+
+    # ⚡ Robust Multi-Thread Stream Downloader Engine
     ydl_opts = {
-        'format': f'bestvideo[height<={user_choice}]+bestaudio/best[height<={user_choice}]/best',
+        'format': 'bestvideo[height<=480]+bestaudio/best[height<=480]/best',
         'outtmpl': output_file,
-        'concurrent_fragment_downloads': 16,
-        'fragment_retries': 50,
+        'concurrent_fragment_downloads': 10,
+        'fragment_retries': 100,
         'skip_unavailable_fragments': True,
+        'progress_hooks': [my_hook],
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
             'Referer': 'https://penpencil.co/',
             'Origin': 'https://penpencil.co'
         }
@@ -69,42 +86,29 @@ def process_download(chat_id, m3u8_url, user_choice, msg_id):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([m3u8_url])
 
-        bot.edit_message_text("⬆️ डाउनलोड पूरा हो गया! टेलीग्राम पर वीडियो अपलोड हो रही है...", chat_id, msg_id)
-        
-        caption_text = f"📦 <b>Title:</b> PW Lecture [{user_choice}p]\n🔗 <b>LNK:</b> Click Here\n\n🎓 <b>Uploaded By:</b> Mr_X45 ⚡"
+        bot.edit_message_text("⬆️ **DOWNLOAD COMPLETE! UPLOADING TO TELEGRAM...**\n`[██████████] 100%`", chat_id, status_msg_id, parse_mode="Markdown")
 
+        # Upload Lecture
         with open(output_file, 'rb') as video:
             bot.send_video(
                 chat_id, 
                 video, 
-                caption=caption_text, 
-                parse_mode="HTML"
+                caption="🎓 **PW Lecture Successfully Extracted!**\n⚡ **Uploaded By:** Mr_X45", 
+                parse_mode="Markdown"
             )
 
         if os.path.exists(output_file):
             os.remove(output_file)
 
     except Exception as e:
-        bot.reply_to(chat_id, f"❌ एरर आया: {str(e)}")
+        bot.reply_to(chat_id, f"❌ **Error:** `{str(e)}`", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda message: message.chat.id in user_links)
-def download_selected_quality(message):
-    chat_id = message.chat.id
-    m3u8_url = user_links.pop(chat_id)
-    user_choice = message.text.replace("send", "").strip()
-
-    msg = bot.reply_to(message, f"🚀 DOWNLOADING STARTED\n🔗 Link » {m3u8_url}\n\n⚡ 16x Multi-Thread स्पीड से डाउनलोड हो रहा है...")
-
-    threading.Thread(target=process_download, args=(chat_id, m3u8_url, user_choice, msg.message_id)).start()
-
-# 🌐 Web Server
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
-# 🧹 Conflict Fix
 try:
     bot.remove_webhook(drop_pending_updates=True)
 except Exception:
     pass
 
-print("Mr_X45 बोट (Web Service Active) चालू हो गया है...")
+print("Mr_X45 Direct Extractor Active!")
 bot.infinity_polling()
