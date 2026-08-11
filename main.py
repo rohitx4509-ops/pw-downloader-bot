@@ -6,8 +6,8 @@ import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-BOT_TOKEN = "8823136614:AAGEoT0TmZayMpnu2PC56vte3DDdFKHWyVw"
-bot = telebot.TeleBot(BOT_TOKEN)
+BOT_TOKEN = "8630261473:AAHYSFP3RX8lr-7v6nXrN-hIkI0F5n38mtw"
+print(f"DEBUG: Bot Token Loaded: {BOT_TOKEN[:10]}...{BOT_TOKEN[-5:]}")
 
 user_data = {}
 
