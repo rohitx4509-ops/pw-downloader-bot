@@ -5,12 +5,13 @@ import re
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# 🔑 Bot Token
 BOT_TOKEN = "8823136614:AAGEoT0TmZayMpnu2PC56vte3DDdFKHWyVw"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 user_links = {}
 
-# Render Web Service Port Binding Fix
+# 🌐 Render Web Service Port Binding
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -96,9 +97,14 @@ def download_selected_quality(message):
 
     threading.Thread(target=process_download, args=(chat_id, m3u8_url, user_choice, msg.message_id)).start()
 
-# Web server aur Bot dono chalu karein
+# 🌐 Web Server
 threading.Thread(target=run_dummy_server, daemon=True).start()
-print("Mr_X45 बोट (Web Service Active) चालू हो गया है...")
 
-# Drop pending updates to avoid 409 Conflict
-bot.infinity_polling(skip_pending_updates=True)
+# 🧹 Conflict Fix
+try:
+    bot.remove_webhook(drop_pending_updates=True)
+except Exception:
+    pass
+
+print("Mr_X45 बोट (Web Service Active) चालू हो गया है...")
+bot.infinity_polling()
