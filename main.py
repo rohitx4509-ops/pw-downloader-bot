@@ -6,32 +6,13 @@ import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-BOT_TOKEN = "8630261473:AAHYSFP3RX8lr-7v6nXrN-hIkI0F5n38mtw"
+# 1️⃣ Token aur Bot Initialization HAMESHA UPAR hona chahiye
+BOT_TOKEN = "8630261473:AAHYSFP3RX8lr-7v6nXrN-hIkI0F5n38mtw"  # Tera Naya Token
 print(f"DEBUG: Bot Token Loaded: {BOT_TOKEN[:10]}...{BOT_TOKEN[-5:]}")
 
-user_data = {}
+bot = telebot.TeleBot(BOT_TOKEN) # <--- Ye line message_handler se PEHLE honi chahiye
 
-class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Engine Active!")
-
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
-
-def run_dummy_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
-    server.serve_forever()
-
-def fix_pw_url(raw_url):
-    url = raw_url.strip()
-    if "/dash/" in url or "/hls/" in url:
-        return re.sub(r'/(dash|hls)/.*$', '/master.m3u8', url)
-    return url
-
+# 2️⃣ Iske BAAD Handlers aayenge
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.reply_to(message, "👋 **PW / JS Script URL Bhejo Bhai!**", parse_mode="Markdown")
